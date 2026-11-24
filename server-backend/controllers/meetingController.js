@@ -1,0 +1,368 @@
+import { sql } from "../config/db.js";
+
+const generateMeetingId = () => {
+  const chars = "abcdefghijklmnopqrstuvwxyz";
+  const segment = (len) =>
+    Array.from(
+      { length: len },
+      () => chars[Math.floor(Math.random() * chars.length)],
+    ).join("");
+
+  return `${segment(3)}-${segment(3)}-${segment(3)}`;
+};
+
+// Create meeting
+export const createMeeting = async (req, res) => {
+  try {
+    const { title, description } = req.body;
+        
+    const userId = req.user.id;
+
+    // Fetch user details and plan
+    const users = await sql`
+    SELECT name, plan FROM users WHERE id = ${userId}
+    `;
+    const userPlan = users[0]?.plan || "free";
+
+    // Check meetings limit per calendar month
+    if (userPlan === "free") {
+      const monthlyCountResult = await sql`
+      SELECT COUNT(*) as count
+      FROM meetings
+      WHERE host_id = ${userId}
+      AND created_at >= date_trunc('month', NOW())
+      `;
+
+      const monthlyCount = parseInt(monthlyCountResult[0]?.count || "0");
+
+      if (monthlyCount >= 30) {
+        return res.status(403).json({
+          error:
+            "Monthly limit reached. Free plan includes 30 meetings per month. Pleaes upgrade to Premium for unlimited meetings!",
+          limitReached: true,
+          monthlyCount,
+          limit: 30,
+        });
+      }
+    }
+
+    let meetingId = generateMeetingId();
+
+    // Ensure unique ID
+    let exsiting =
+      await sql`SELECT id FROM meetings WHERE meeting_id = ${meetingId}`;
+    while (exsiting.length > 0) {
+      meetingId = generateMeetingId();
+      exsiting =
+        await sql`SELECT id FROM meetings WHERE meeting_id = ${meetingId}`;
+    }
+
+    const [meeting] = await sql`
+    INSERT INTO meetings(meeting_id, title, description, host_id, status)
+    VALUES (${meetingId}, ${title || "Instant Meeting"}, ${description} || null, ${userId}, 'active')
+    RETURNING id, meeting_id, title, description, host_id, status, created_at
+    `;
+
+    const hostName = users[0]?.name || "Host";
+
+    // Insert host to participants
+    await sql`
+    INSERT INTO meeting_participants (meeting_id, user_id, name)
+    VALUES (${meeting.id}, ${userId}, ${hostName})
+    `;
+
+    res.status(201).json({
+      meeting: {
+        id: meeting.id,
+        meetingId: meeting.meeting_id,
+        title: meeting.title,
+        description: meeting.description,
+        host: meeting.host_id,
+        status: meeting.status,
+      },
+    });
+  } catch (error) {
+    console.error("create meeting failed:", error);
+    res.status(500).json({ error: "Failed to create meeting" });
+  }
+};
+
+// Get meeting by id
+export const getMeeting = async (req, res) => {
+  try {
+    const { meetingId } = req.params;
+
+    const meetings = await sql`
+      SELECT m.*, u.id as host_user_id, u.name as host_name, u.email as host_email
+      FROM meetings m JOIN users u ON m.host_id = u.id
+      WHERE m.meeting_id = ${meetingId}
+    `;
+
+    if (meetings.length === 0) {
+      return res.status(404).json({ error: "Meeting not found" });
+    }
+
+    const meeting = meetings[0];
+
+    if (meeting.status === "ended") {
+      return res.status(400).json({ error: "This meeting has ended." });
+    }
+
+    res.json({
+      meeting: {
+        id: meeting.id,
+        meetingId: meeting.meeting_id,
+        title: meeting.title,
+        host: meeting.host_id,
+        status: meeting.status,
+        createdAt: meeting.created_at,
+        host: {
+          id: meeting.host_user_id,
+          name: meeting.host_name,
+          email: meeting.host_email,
+        },
+      },
+    });
+  } catch (error) {
+    console.error("fetch meeting failed:", error);
+    res.status(500).json({ error: "Failed to fetch meeting" });
+  }
+};
+
+// Get all user's meetings sessions
+export const getUserSessions = async (req, res) => {
+  try {
+    const userId = req.user.id;
+
+    // Fetch meetings where user is host or listed in participants
+    const meetings = await sql`
+      SELECT DISTINCT m.id, m.meeting_id, m.title, m.status, m.created_at, m.ended_at, m.host_id, u.name as host_name, u.email as host_email
+      FROM meetings m
+      JOIN users u ON m.host_id = u.id
+      LEFT JOIN meeting_participants mp ON m.id = mp.meeting_id
+      WHERE m.host_id = ${userId} OR mp.user_id = ${userId}
+      ORDER BY m.created_at DESC
+    `;
+
+    const formattedMeetings = await Promise.all(
+      meetings.map(async (m) => {
+        const participants = await sql`
+          SELECT mp.*, u.email
+          FROM meeting_participants mp
+          LEFT JOIN users u ON mp.user_id = u.id
+          WHERE mp.meeting_id = ${m.id}
+        `;
+
+        const messages = await sql`
+          SELECT id, sender_id, sender_name, text, timestamp
+          FROM meeting_messages
+          WHERE meeting_id = ${m.id}
+          ORDER BY timestamp ASC
+        `;
+
+        return {
+          id: m.id,
+          meetingId: m.meeting_id,
+          title: m.title,
+          status: m.status,
+          createdAt: m.created_at,
+          endedAt: m.ended_at,
+          host: {
+            id: m.host_id,
+            name: m.host_name,
+            email: m.host_email,
+          },
+          participants: participants.map((p) => ({
+            user: p.user_id ? { id: p.user_id, email: p.email } : null,
+            joinedAt: p.joined_at,
+            leftAt: p.left_at,
+          })),
+          messages: messages.map((msg) => ({
+            id: msg.id,
+            sender: msg.sender_id,
+            senderName: msg.sender_name,
+            text: msg.text,
+            timestamp: msg.timestamp,
+          })),
+        };
+      }),
+    );
+
+    res.json({ meetings: formattedMeetings });
+  } catch (error) {
+    console.error("get user sessions failed:", error);
+    res.status(500).json({ error: "Failed to fetch user sessions" });
+  }
+};
+
+// Get meeting session details by id
+export const getSessionDetails = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user.id;
+
+    // Get meetings when the user is host of meeting
+    const meetings = await sql`
+      SELECT m.*,
+        u.id as host_user_id,
+        u.name as host_name,
+        u.email as host_email
+      FROM meetings m
+      JOIN users u ON m.host_id = u.id
+      WHERE m.meeting_id = ${id}
+    `;
+
+    if (meetings.length === 0) {
+      return res.status(404).json({ error: "Session details not found." });
+    }
+
+    const m = meetings[0];
+
+    // Check if user access is not host and he must be membership
+    if (m.host_id !== userId) {
+      const membership = await sql`
+        SELECT 1 FROM meeting_participants
+        WHERE meeting_id = ${m.id} AND user_id = ${userId} LIMIT 1
+      `;
+      if (membership.length === 0) {
+        return res.status(404).json({ error: "Session details not found" });
+      }
+    }
+
+    const participants = await sql`
+      SELECT mp.*, u.email, u.name
+      FROM meeting_participants mp
+      LEFT JOIN users u ON mp.user_id = u.id
+      WHERE mp.meeting_id = ${m.id}
+    `;
+
+    const messages = await sql`
+      SELECT id, sender_id, sender_name, text, timestamp
+      FROM meeting_messages
+      WHERE meeting_id = ${m.id}
+      ORDER BY timestamp ASC
+    `;
+
+    const formattedMeeting = {
+      id: m.id,
+      meetingId: m.meeting_id,
+      title: m.title,
+      status: m.status,
+      createdAt: m.created_at,
+      endedAt: m.ended_at,
+      host: {
+        id: m.host_user_id,
+        name: m.host_name,
+        email: m.host_email,
+      },
+      participants: participants.map((p) => ({
+        user: p.user_id ? { id: p.user_id, email: p.email, name: p.name } : null,
+        joinedAt: p.joined_at,
+        leftAt: p.left_at,
+      })),
+      messages: messages.map((msg) => ({
+        id: msg.id,
+        sender: msg.sender_id,
+        senderName: msg.sender_name,
+        text: msg.text,
+        timestamp: msg.timestamp,
+      })),
+    };
+
+    res.json({ meeting: formattedMeeting });
+  } catch (error) {
+    console.error("fetch session details failed:", error);
+    res.status(500).json({ error: "Failed to fetch session details" });
+  }
+};
+
+// Get plan & meetings statistics for user dashboard
+export const getMeetingStats = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const users = await sql`SELECT plan FROM users WHERE id = ${userId}`;
+    const plan = users[0]?.plan || "free";
+
+    const monthlyCountResult = await sql`
+      SELECT COUNT(*) as count
+      FROM meetings
+      WHERE host_id = ${userId}
+        AND created_at >= date_trunc('month', NOW())
+    `;
+    const monthlyCount = parseInt(monthlyCountResult[0]?.count || "0", 10);
+    const monthlyLimit = plan === "premium" ? null : 30;
+
+    res.json({
+      plan,
+      monthlyCount,
+      monthlyLimit,
+      maxParticipants: plan === "premium" ? 100 : 10,
+    });
+  } catch (error) {
+    console.error("fetch meeting stats failed:", error);
+    res.status(500).json({ error: "Failed to fetch meeting stats" });
+  }
+};
+
+// Get chat meeting messages for a meeting room
+export const getMeetingMessages = async (req, res) => {
+  try {
+    const { meetingId } = req.params;
+    const userId = req.user.id;
+
+    const meetings = await sql`
+      SELECT id, meeting_id, host_id
+      FROM meetings
+      WHERE meeting_id = ${meetingId}
+      LIMIT 1
+    `;
+
+    if (meetings.length === 0) {
+      return res.status(404).json({ error: "Meeting not found" });
+    }
+
+    const meeting = meetings[0];
+
+    // Only host or participant can read the chat history
+    if (String(meeting.host_id) !== String(userId)) {
+      const membership = await sql`
+        SELECT 1
+        FROM meeting_participants
+        WHERE meeting_id = ${meeting.id} AND user_id = ${userId}
+        LIMIT 1
+      `;
+
+      if (membership.length === 0) {
+        return res
+          .status(403)
+          .json({ error: "You are not participant of this meeting" });
+      }
+    }
+
+    const messages = await sql`
+      SELECT id, sender_id, sender_name, text, timestamp
+      FROM meeting_messages
+      WHERE meeting_id = ${meeting.id}
+      ORDER BY timestamp ASC, id ASC
+    `;
+
+    return res.json({
+      messages: messages.map((msg) => ({
+        id: msg.id,
+        senderId: msg.sender_id,
+        senderName: msg.sender_name,
+        text: msg.text,
+        timestamp: msg.timestamp,
+        time: msg.timestamp
+          ? new Date(msg.timestamp).toLocaleTimeString([], {
+              hour: "2-digit",
+              minute: "2-digit",
+            })
+          : "",
+      })),
+    });
+  } catch (error) {
+    console.error("Get Meeting Messages Failed:", error);
+    return res.status(500).json({ error: "Failed to Fetch Meeting Messages" });
+  }
+};
