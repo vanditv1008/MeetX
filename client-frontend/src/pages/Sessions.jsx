@@ -1,12 +1,12 @@
 import React, { useEffect, useState } from "react";
 import toast from "react-hot-toast";
-import { createSessionStorage, Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { ArrowLeftIcon } from "lucide-react";
 import { useAuth } from "@clerk/react";
 import api from "../config/api.js";
 
 import Loader from "../components/Loader.jsx";
-import EmptySession from "../components/sessions/EmptySession";
+import EmptySession from "../components/sessions/EmptySessions";
 import SessionCard from "../components/sessions/SessionCard";
 import SessionDetailModal from "../components/sessions/SessionDetailModal";
 
@@ -19,14 +19,14 @@ const Sessions = () => {
   const { isLoaded, isSignedIn, getToken } = useAuth();
 
   useEffect(() => {
-    const fetchSessions = async (params) => {
+    const fetchSessions = async () => {
       if (!isLoaded || !isSignedIn) return;
 
       try {
         const token = await getToken();
         if (!token) return;
         const res = await api.get("/api/meetings/sessions", {
-          headers: `Bearer ${token}`,
+          headers: { Authorization: `Bearer ${token}` },
         });
         setSessions(res.data.meetings || []);
       } catch {
@@ -43,7 +43,7 @@ const Sessions = () => {
       const token = await getToken();
       if (!token) return;
       const res = await api.get(`/api/meetings/sessions/${sessionId}`, {
-        headers: `Bearer ${token}`,
+        headers: { Authorization: `Bearer ${token}` },
       });
       setSelectedSession(res.data.meeting);
     } catch {

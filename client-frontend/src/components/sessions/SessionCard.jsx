@@ -51,10 +51,10 @@ const SessionCard = ({ session, onOpenDetails, onRejoin }) => {
       {/* Actions */}
       <div className="flex items-center justify-between gap-3 pt-2">
         <button
-          onClick={()=>onOpenDetails(session.id)}
+          onClick={()=>onOpenDetails(session.meetingId)}
           className="w-full bg-slate-400/10 hover:bg-slate-400/20 text-slate-800 font-medium px-4 py-2.5 rounded-full text-xs transition-all cursor-pointer text-center"
         >
-          Video Details
+          View Details
         </button>
         {!isEnded && (
           <button

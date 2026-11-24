@@ -96,6 +96,14 @@ export function setupSocketIO(io) {
           // Send list of existing users to the newcomer
           socket.emit("all-users", existingUsers);
 
+          // If there are existing shared notes in this room, sync to newcomer
+          if (roomNotes[roomId]) {
+            socket.emit("notes-updated", {
+              content: roomNotes[roomId],
+              updatedBy: "System",
+            });
+          }
+
           // Notify everyone else in the room
           socket.to(roomId).emit("user-joined", currentUser);
         } catch (error) {
@@ -183,7 +191,7 @@ export function setupSocketIO(io) {
         // The sender is taken from authenticated/registered socket
         // participant instead of trusting a client-supplied sender ID.
         const senderId = currentUser?.userId || message.senderId || null;
-        const senderName = currentUser?.userName || meeting?.senderName || "Anonymous";
+        const senderName = currentUser?.userName || message?.senderName || "Anonymous";
         const text = message.text.trim();
 
         // Ensure the socket is actually in this meeting before writing.
@@ -228,7 +236,7 @@ export function setupSocketIO(io) {
 
     // Live shared meeting notes
     socket.on("notes-update", ({ roomId, content, updatedBy }) => {
-      rooms[roomId] = content;
+      roomNotes[roomId] = content;
       socket.to(roomId).emit("notes-updated", { content, updatedBy });
     });
 
@@ -262,15 +270,6 @@ export function setupSocketIO(io) {
       });
     });
 
-    // Collaborative whiteboard
-    socket.on("draw-line", ({ roomId, prevPoint, currentPoint, color, width, mode }) => {
-      socket.to(roomId).emit("draw-line", { prevPoint, currentPoint, color, width, mode });
-    });
-
-    socket.on("clear-whiteboard", ({ roomId }) => {
-      socket.to(roomId).emit("whiteboard-cleared");
-    });
-
     // Screen sharing
     socket.on("toggle-screen-share", ({ roomId, isSharing }) => {
       if (rooms.has(roomId) && rooms.get(roomId).has(socket.id)) {
@@ -285,6 +284,11 @@ export function setupSocketIO(io) {
     // Host explicitly ends meeting for all via End Meeting button
     socket.on("end-meeting", async ({ roomId }) => {
       try {
+        if (!currentUser?.isHost) {
+          console.warn(`Unauthorized attempt to end meeting ${roomId} by socket ${socket.id}`);
+          return;
+        }
+
         await sql`
           UPDATE meetings
           SET status = 'ended', ended_at = NOW()
@@ -294,21 +298,42 @@ export function setupSocketIO(io) {
           message: "The meeting has been ended by the host.",
         });
         rooms.delete(roomId);
+        delete roomNotes[roomId];
       } catch (error) {
-        console.error("Error endign meeting:", error);
+        console.error("Error ending meeting:", error);
       }
     });
 
     // Handle Disconnect (Reloading window, network drop, or closing tab)
-    socket.on("disconnect", () => {
+    socket.on("disconnect", async () => {
       if (currentRoomId && rooms.has(currentRoomId)) {
         const roomParticipants = rooms.get(currentRoomId);
         roomParticipants.delete(socket.id);
 
+        // Update left_at timestamp for participant in database
+        if (currentUser?.userId) {
+          try {
+            const meetings =
+              await sql`SELECT id FROM meetings WHERE meeting_id = ${currentRoomId} LIMIT 1`;
+            if (meetings.length > 0) {
+              await sql`
+                UPDATE meeting_participants
+                SET left_at = NOW()
+                WHERE meeting_id = ${meetings[0].id}
+                  AND user_id = ${currentUser.userId}
+                  AND left_at IS NULL
+              `;
+            }
+          } catch (err) {
+            console.error("Error logging participant departure:", err);
+          }
+        }
+
         if (roomParticipants.size === 0) {
           rooms.delete(currentRoomId);
+          delete roomNotes[currentRoomId];
         } else {
-          // Notify remaining peers that a user disconnect
+          // Notify remaining peers that a user disconnected
           socket.to(currentRoomId).emit("user-left", {
             socketId: socket.id,
             user: currentUser,

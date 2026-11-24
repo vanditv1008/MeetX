@@ -46,8 +46,12 @@ export const handleClerkWebhook = async (req, res) => {
 
       case "user.updated": {
         const userId = data.id;
-        const primaryEmail = data.email_addresses?.[0].email_address || "";
-        const name = `${data.first_name || "User"} ${data.last_name}`;
+        const primaryEmail =
+          data.email_addresses?.find((e) => e.id === data.primary_email_address_id)?.email_address ||
+          data.email_addresses?.[0]?.email_address ||
+          "";
+        const name =
+          [data.first_name, data.last_name].filter(Boolean).join(" ") || "User";
         const image = data.image_url || "";
 
         await sql`
@@ -71,7 +75,7 @@ export const handleClerkWebhook = async (req, res) => {
       }
 
       default:
-        console.log(`Un handle Clerk webhook event type: ${eventType}`);
+        console.log(`Unhandled Clerk webhook event type: ${eventType}`);
     }
     return res.status(200).json({ success: true, eventType });
   } catch (error) {

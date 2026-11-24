@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { XIcon } from "lucide-react";
 import SessionChatTab from "./SessionChatTab";
-import SessionParticipantsTab from "./SessionParticipantsTab";
+import SessionParticipantsTab from "./SessionParticipantTab";
 
 const SessionDetailModal = ({ session, onClose }) => {
 

@@ -4,13 +4,11 @@ import {
   CheckIcon,
   Circle,
   CopyIcon,
-  FileText,
   Hand,
   MessagesSquareIcon,
   MicIcon,
   MicOffIcon,
   Monitor,
-  Palette,
   PhoneOffIcon,
   Settings,
   Smile,
@@ -34,16 +32,13 @@ const ControlBar = ({
   onToggleVideo,
   onToggleChat,
   onToggleParticipants,
-  onToggleNotes,
   onToggleRaiseHand,
   isChatOpen,
   isParticipantsOpen,
-  isNotesOpen,
   unreadCount,
   participantCount,
   isHost,
   onSendReaction,
-  onOpenWhiteboard,
   onOpenSettings,
   onToggleScreenShare,
   onToggleRecording,
@@ -195,19 +190,6 @@ const ControlBar = ({
           </span>
         </button>
 
-        {/* Shared Notes Drawer Trigger */}
-        <button
-          onClick={onToggleNotes}
-          className={`relative p-3.5 rounded-2xl transition-all cursor-pointer border ${
-            isNotesOpen
-              ? "bg-primary text-white border-primary shadow-md shadow-primary/20"
-              : "bg-slate-100 text-slate-800 hover:bg-slate-200 border-slate-300 shadow-xs"
-          }`}
-          title="Open Shared Meeting Notes"
-        >
-          <FileText className="h-5 w-5" />
-        </button>
-
         {/* Raise Hand Toggle */}
         <button
           onClick={onToggleRaiseHand}
@@ -249,15 +231,6 @@ const ControlBar = ({
             </div>
           )}
         </div>
-
-        {/* Whiteboard Modal Trigger */}
-        <button
-          onClick={onOpenWhiteboard}
-          className="p-2.5 sm:p-3 rounded-2xl bg-slate-100 hover:bg-slate-200 border border-slate-200 text-slate-700 transition-all cursor-pointer shrink-0"
-          title="Open Collaborative Whiteboard"
-        >
-          <Palette className="w-4 h-4 sm:w-4.5 sm:h-4.5" />
-        </button>
 
         {/* Record Meeting Toggle */}
         <button

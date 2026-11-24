@@ -10,10 +10,8 @@ import ChatPanel from "../components/meeting/ChatPanel";
 import ParticipantList from "../components/meeting/ParticipantList";
 import ControlBar from "../components/meeting/ControlBar";
 import Loader from "../components/Loader";
-import MeetingNotesDrawer from "../components/meeting/MeetingNotesDrawer";
 import ReactionsOverlay from "../components/meeting/ReactionsOverlay";
 import SettingsModal, { VIRTUAL_BACKGROUNDS } from "../components/meeting/SettingsModal";
-import WhiteboardModal from "../components/meeting/WhiteboardModal";
 import { useRecording } from "../hooks/useRecording";
 
 const Meeting = () => {
@@ -26,11 +24,9 @@ const Meeting = () => {
   const [meeting, setMeeting] = useState(null);
   const [loadingMeeting, setLoadingMeeting] = useState(true);
   const [isParticipantsOpen, setIsParticipantsOpen] = useState(false);
-  const [isNotesOpen, setIsNotesOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [virtualBackground, setVirtualBackground] = useState(VIRTUAL_BACKGROUNDS[0]);
   const [noiseSuppressionEnabled, setNoiseSuppressionEnabled] = useState(true);
-  const [isWhiteboardOpen, setIsWhiteboardOpen] = useState(false);
 
   const userData = useMemo(() => {
     if (!user) return null;
@@ -126,7 +122,7 @@ const Meeting = () => {
   };
 
   if (loadingMeeting || !meeting) {
-    return <Loader title="Joining meeting room..." />;
+    return <Loader text="Joining meeting room..." />;
   }
 
   return (
@@ -179,21 +175,6 @@ const Meeting = () => {
           meetingHostId={hostId}
         />
 
-        {/* Shared Notes Drawer */}
-        <MeetingNotesDrawer
-          isOpen={isNotesOpen}
-          onClose={() => setIsNotesOpen(false)}
-          roomId={meetingId || meeting.meetingId}
-          currentUser={userData.name}
-        />
-
-        {/* Collaborative Whiteboard Modal */}
-        <WhiteboardModal
-          isOpen={isWhiteboardOpen}
-          onClose={() => setIsWhiteboardOpen(false)}
-          roomId={meetingId || meeting.meetingId}
-        />
-
         {/* Audio & Video Quality Settings Modal */}
         <SettingsModal
           isOpen={isSettingsOpen}
@@ -219,15 +200,12 @@ const Meeting = () => {
         onToggleVideo={toggleVideo}
         onToggleChat={toggleChat}
         onToggleParticipants={() => setIsParticipantsOpen((prev) => !prev)}
-        onToggleNotes={() => setIsNotesOpen((prev) => !prev)}
         onToggleRaiseHand={toggleRaiseHand}
         onOpenSettings={() => setIsSettingsOpen(true)}
-        onOpenWhiteboard={() => setIsWhiteboardOpen(true)}
         onToggleScreenShare={toggleScreenShare}
         onToggleRecording={toggleRecording}
         isChatOpen={isChatOpen}
         isParticipantsOpen={isParticipantsOpen}
-        isNotesOpen={isNotesOpen}
         unreadCount={unreadCount}
         participantCount={1 + remoteUsers.length}
         isHost={isHost}

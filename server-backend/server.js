@@ -8,7 +8,6 @@ import { clerkMiddleware } from "@clerk/express";
 import { initDB } from "./config/db.js";
 import { handleClerkWebhook } from "./controllers/webhookController.js";
 import meetingRouter from "./routes/meetingRoutes.js";
-import uploadRouter from "./routes/uploadRoutes.js";
 import { setupSocketIO } from "./socket.js";
 
 const app = express();
@@ -17,7 +16,9 @@ const server = http.createServer(app);
 // Connect to Neon & Initialize Tables
 await initDB();
 
-const allowOrigins = process.env.ORIGINS.split(",");
+const allowOrigins = process.env.ORIGINS
+  ? process.env.ORIGINS.split(",")
+  : ["http://localhost:5173", "http://localhost:3000"];
 app.use(cors({ origin: allowOrigins, credentials: true }));
 app.use(cookieParser());
 
@@ -27,7 +28,6 @@ app.use(clerkMiddleware());
 
 app.get("/", (req, res) => res.send("API is live!"));
 app.use("/api/meetings", meetingRouter);
-app.use("/api/upload", uploadRouter);
 
 const io = new Server(server, {
   cors: { origin: allowOrigins, credentials: true }
@@ -35,7 +35,7 @@ const io = new Server(server, {
 
 setupSocketIO(io);
 
-// Centralized error hander
+// Centralized error handler
 app.use((err, _req, res, _next) => {
   console.error(`[Error] ${err.message}`);
   const status = err.status >= 400 && err.status < 500 ? err.status : 500;

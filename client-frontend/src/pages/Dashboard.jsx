@@ -15,8 +15,8 @@ const Dashboard = () => {
   const { user } = useUser();
   const { isLoaded, isSignedIn, getToken } = useAuth();
 
-  const userName = user.fullName || user.firstName || "User";
-  const userEmail = user.primaryEmailAddress?.emailAddress;
+  const userName = user?.fullName || user?.firstName || "User";
+  const userEmail = user?.primaryEmailAddress?.emailAddress || "";
   const navigate = useNavigate();
 
   const [isNewMeetingOpen, setIsNewMeetingOpen] = useState(false);

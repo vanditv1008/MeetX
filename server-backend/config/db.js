@@ -1,8 +1,38 @@
-import { neon, Pool } from '@neondatabase/serverless';
+import "dotenv/config";
+import dns from "node:dns";
+import { neon } from '@neondatabase/serverless';
 
 if (!process.env.DATABASE_URL) {
-  throw new Error("DATABASE_URL is not defined in env variables")
+  throw new Error("DATABASE_URL is not defined in env variables");
 }
+
+// Fallback resolver for cloud hosts if local ISP/router DNS refuses subdomains
+const customResolver = new dns.Resolver();
+customResolver.setServers(["8.8.8.8", "1.1.1.1"]);
+const defaultLookup = dns.lookup;
+dns.lookup = (hostname, options, callback) => {
+  if (typeof options === "function") {
+    callback = options;
+    options = {};
+  }
+  defaultLookup(hostname, options, (err, address, family) => {
+    if (err && (err.code === "ENOTFOUND" || err.code === "EREFUSED" || err.code === "EAI_AGAIN")) {
+      customResolver.resolve4(hostname, (resErr, addresses) => {
+        if (!resErr && addresses && addresses.length > 0) {
+          if (options && options.all) {
+            callback(null, addresses.map((a) => ({ address: a, family: 4 })));
+          } else {
+            callback(null, addresses[0], 4);
+          }
+        } else {
+          callback(err, address, family);
+        }
+      });
+    } else {
+      callback(err, address, family);
+    }
+  });
+};
 
 export const sql = neon(process.env.DATABASE_URL);
 

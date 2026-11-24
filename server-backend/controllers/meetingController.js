@@ -38,7 +38,7 @@ export const createMeeting = async (req, res) => {
       if (monthlyCount >= 30) {
         return res.status(403).json({
           error:
-            "Monthly limit reached. Free plan includes 30 meetings per month. Pleaes upgrade to Premium for unlimited meetings!",
+            "Monthly limit reached. Free plan includes 30 meetings per month. Please upgrade to Premium for unlimited meetings!",
           limitReached: true,
           monthlyCount,
           limit: 30,
@@ -49,17 +49,17 @@ export const createMeeting = async (req, res) => {
     let meetingId = generateMeetingId();
 
     // Ensure unique ID
-    let exsiting =
+    let existing =
       await sql`SELECT id FROM meetings WHERE meeting_id = ${meetingId}`;
-    while (exsiting.length > 0) {
+    while (existing.length > 0) {
       meetingId = generateMeetingId();
-      exsiting =
+      existing =
         await sql`SELECT id FROM meetings WHERE meeting_id = ${meetingId}`;
     }
 
     const [meeting] = await sql`
     INSERT INTO meetings(meeting_id, title, description, host_id, status)
-    VALUES (${meetingId}, ${title || "Instant Meeting"}, ${description} || null, ${userId}, 'active')
+    VALUES (${meetingId}, ${title || "Instant Meeting"}, ${description || null}, ${userId}, 'active')
     RETURNING id, meeting_id, title, description, host_id, status, created_at
     `;
 
@@ -113,7 +113,8 @@ export const getMeeting = async (req, res) => {
         id: meeting.id,
         meetingId: meeting.meeting_id,
         title: meeting.title,
-        host: meeting.host_id,
+        description: meeting.description,
+        hostId: meeting.host_id,
         status: meeting.status,
         createdAt: meeting.created_at,
         host: {
@@ -147,7 +148,7 @@ export const getUserSessions = async (req, res) => {
     const formattedMeetings = await Promise.all(
       meetings.map(async (m) => {
         const participants = await sql`
-          SELECT mp.*, u.email
+          SELECT mp.*, u.email, u.name as user_name
           FROM meeting_participants mp
           LEFT JOIN users u ON mp.user_id = u.id
           WHERE mp.meeting_id = ${m.id}
@@ -173,7 +174,10 @@ export const getUserSessions = async (req, res) => {
             email: m.host_email,
           },
           participants: participants.map((p) => ({
-            user: p.user_id ? { id: p.user_id, email: p.email } : null,
+            user: p.user_id
+              ? { id: p.user_id, email: p.email, name: p.user_name || p.name }
+              : null,
+            name: p.name || p.user_name || "Participant",
             joinedAt: p.joined_at,
             leftAt: p.left_at,
           })),
@@ -201,7 +205,7 @@ export const getSessionDetails = async (req, res) => {
     const { id } = req.params;
     const userId = req.user.id;
 
-    // Get meetings when the user is host of meeting
+    // Get meetings by meeting_id (e.g. abc-def-ghi) or numeric id
     const meetings = await sql`
       SELECT m.*,
         u.id as host_user_id,
@@ -209,7 +213,7 @@ export const getSessionDetails = async (req, res) => {
         u.email as host_email
       FROM meetings m
       JOIN users u ON m.host_id = u.id
-      WHERE m.meeting_id = ${id}
+      WHERE m.meeting_id = ${id} OR m.id::text = ${id}
     `;
 
     if (meetings.length === 0) {
@@ -218,7 +222,7 @@ export const getSessionDetails = async (req, res) => {
 
     const m = meetings[0];
 
-    // Check if user access is not host and he must be membership
+    // Check if user is host or participant
     if (m.host_id !== userId) {
       const membership = await sql`
         SELECT 1 FROM meeting_participants
@@ -230,7 +234,7 @@ export const getSessionDetails = async (req, res) => {
     }
 
     const participants = await sql`
-      SELECT mp.*, u.email, u.name
+      SELECT mp.*, u.email, u.name as user_name
       FROM meeting_participants mp
       LEFT JOIN users u ON mp.user_id = u.id
       WHERE mp.meeting_id = ${m.id}
@@ -256,7 +260,8 @@ export const getSessionDetails = async (req, res) => {
         email: m.host_email,
       },
       participants: participants.map((p) => ({
-        user: p.user_id ? { id: p.user_id, email: p.email, name: p.name } : null,
+        user: p.user_id ? { id: p.user_id, email: p.email, name: p.user_name || p.name } : null,
+        name: p.name || p.user_name || "Participant",
         joinedAt: p.joined_at,
         leftAt: p.left_at,
       })),
